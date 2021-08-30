@@ -22,8 +22,9 @@ forward to the cubes. Right now only the `motor` message is implemented and allo
 to control the cubes around.
 
 ## Related projects
-See the nannou example *here* or the processing example *here* for examples on how to
-use this application.
+See the nannou example [here](https://github.com/MacTuitui/toio-nannou) or 
+the processing example [here](https://github.com/MacTuitui/toio-processing) 
+for examples on how to use this application.
 
 ## Caveats
 If you are running Big Sur, you must authorize the terminal application to use 
