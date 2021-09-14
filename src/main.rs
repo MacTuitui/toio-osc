@@ -25,6 +25,7 @@ const POSITION_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20101_5B3B_4571_
 const MOTOR_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20102_5B3B_4571_9508_CF3EFCD7BBAE);
 const BUTTON_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20107_5B3B_4571_9508_CF3EFCD7BBAE);
 const LIGHT_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20103_5B3B_4571_9508_CF3EFCD7BBAE);
+const MOTION_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20106_5B3B_4571_9508_CF3EFCD7BBAE);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -249,12 +250,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 characteristic.uuid
                             );
                             peripheral.subscribe(&characteristic).await?;
-                        }
+                        } 
                         if characteristic.uuid == BUTTON_CHARACTERISTIC_UUID
                             && characteristic.properties.contains(CharPropFlags::NOTIFY)
                         {
                             println!(
                                 "Subscribing to button characteristic {:?}",
+                                characteristic.uuid
+                            );
+                            peripheral.subscribe(&characteristic).await?;
+                        } 
+                        if characteristic.uuid == MOTION_CHARACTERISTIC_UUID
+                            && characteristic.properties.contains(CharPropFlags::NOTIFY)
+                        {
+                            println!(
+                                "Subscribing to motion characteristic {:?}",
                                 characteristic.uuid
                             );
                             peripheral.subscribe(&characteristic).await?;
@@ -301,7 +311,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                                         tx3.send((msg, remote_addr)).await.unwrap();
                                     }
-                                }
+                                },
                                 BUTTON_CHARACTERISTIC_UUID => {
                                     let button = data.value[1];
                                     let msg = encoder::encode(&OscPacket::Message(OscMessage {
@@ -315,7 +325,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     .unwrap();
 
                                     tx3.send((msg, remote_addr)).await.unwrap();
-                                }
+                                },
+                                MOTION_CHARACTERISTIC_UUID => {
+                                    let flatness = data.value[1];
+                                    let hit = data.value[2];
+                                    let double_tap = data.value[3];
+                                    let face_up = data.value[4];
+                                    let shake_level = data.value[5];
+
+                                    let msg = encoder::encode(&OscPacket::Message(OscMessage {
+                                        addr: "/motion".to_string(),
+                                        args: vec![
+                                            OscType::Int(0),
+                                            OscType::Int(id as i32),
+                                            OscType::Int(flatness as i32),
+                                            OscType::Int(hit as i32),
+                                            OscType::Int(double_tap as i32),
+                                            OscType::Int(face_up as i32),
+                                            OscType::Int(shake_level as i32),
+                                        ],
+                                    }))
+                                    .unwrap();
+
+                                    tx3.send((msg, remote_addr)).await.unwrap();
+                                },
                                 _ => {}
                             }
                         }
