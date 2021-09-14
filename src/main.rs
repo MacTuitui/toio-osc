@@ -24,6 +24,7 @@ const TOIO_SERVICE_UUID: Uuid = Uuid::from_u128(0x10B20100_5B3B_4571_9508_CF3EFC
 const POSITION_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20101_5B3B_4571_9508_CF3EFCD7BBAE);
 const MOTOR_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20102_5B3B_4571_9508_CF3EFCD7BBAE);
 const BUTTON_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20107_5B3B_4571_9508_CF3EFCD7BBAE);
+const LIGHT_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20103_5B3B_4571_9508_CF3EFCD7BBAE);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -198,6 +199,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                             .unwrap();
                                     } else {
                                         //error
+                                    }
+                                }
+                                "/led" => {
+                                    if message.args.len() == 5 {
+                                        //we should have 5 args
+                                        let mut marg = [0; 5];
+                                        for k in 0..5 {
+                                            if let OscType::Int(i) = message.args[k] {
+                                                marg[k] = i;
+                                            }
+                                        }
+                                        let characteristic = Characteristic {
+                                            uuid: LIGHT_CHARACTERISTIC_UUID,
+                                            properties: CharPropFlags::WRITE_WITHOUT_RESPONSE,
+                                        };
+                                        let cmd = vec![
+                                            0x03,                 //light
+                                            (marg[1] / 10) as u8, //length
+                                            0x01,                 //led
+                                            0x01,                 //reserved
+                                            marg[2].abs() as u8,  //red
+                                            marg[3].abs() as u8,  //green
+                                            marg[4].abs() as u8,  //blue
+                                        ];
+                                        println!("{:?}", cmd);
+                                        p2.write(&characteristic, &cmd, WriteType::WithResponse)
+                                            .await
+                                            .unwrap();
                                     }
                                 }
                                 _ => {}
