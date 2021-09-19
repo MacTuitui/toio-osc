@@ -23,7 +23,7 @@ to control the cubes around.
 
 ## Related projects
 See the nannou example [here](https://github.com/MacTuitui/toio-nannou) or 
-the processing example [here](https://github.com/MacTuitui/toio-processing) 
+the processing example [here](https://github.com/MacTuitui/toio_processing) 
 for examples on how to use this application.
 
 ## Caveats
