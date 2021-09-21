@@ -23,10 +23,10 @@ to control the cubes around.
 
 ## Related projects
 See the nannou example [here](https://github.com/MacTuitui/toio-nannou) or 
-the processing example [here](https://github.com/MacTuitui/toio-processing) 
+the processing example [here](https://github.com/MacTuitui/toio_processing) 
 for examples on how to use this application.
 
 ## Caveats
 If you are running Big Sur, you must authorize the terminal application to use 
 Bluetooth. 
-I only tested on MacOS Catalina so far.
+This has been tested on Mac OS Catalina and Windows 10. More to come soon!
