@@ -1,3 +1,5 @@
+extern crate getopts;
+use getopts::Options;
 use btleplug::api::CharPropFlags;
 use btleplug::api::{
     BDAddr, Central, CentralEvent, Characteristic, Manager as _, Peripheral, WriteType,
@@ -11,13 +13,14 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{env, io, net::SocketAddr};
+use std::{env, net::SocketAddr};
 use tokio::time;
 use tokio::{net::UdpSocket, sync::mpsc};
 use uuid::Uuid;
 
-#[macro_use]
+//#[macro_use]
 extern crate log;
+
 
 //characteristic of interest
 const TOIO_SERVICE_UUID: Uuid = Uuid::from_u128(0x10B20100_5B3B_4571_9508_CF3EFCD7BBAE);
@@ -27,9 +30,35 @@ const BUTTON_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20107_5B3B_4571_95
 const LIGHT_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20103_5B3B_4571_9508_CF3EFCD7BBAE);
 const MOTION_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x10B20106_5B3B_4571_9508_CF3EFCD7BBAE);
 
+fn print_usage(program: &str, opts: Options) {
+    let brief = format!("Usage: {} FILE [options]", program);
+    print!("{}", opts.usage(&brief));
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
+
+    //read command line arguments
+    let args: Vec<String> = env::args().collect();
+    let program = args[0].clone();
+
+    let mut opts = Options::new();
+    opts.optopt("p", "port", "set receiving port", "PORT_NUMBER");
+    opts.optopt("r", "remote", "set remote port", "IP:PORT_NUMBER");
+    opts.optopt("i", "host_id", "set host id number", "ID_NUMBER");
+    opts.optflag("h", "help", "print this help menu");
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m) => { m }
+        Err(f) => { panic!("{}",f.to_string()) }
+    };
+    if matches.opt_present("h") {
+        print_usage(&program, opts);
+        return Ok(());
+    }
+
+    let port_number = matches.opt_str("p").unwrap_or("3334".to_string());
+    let listening_address = format!("0.0.0.0:{}",port_number);
 
     //the ID/addresses of the cubes
     let addresses: Arc<Mutex<Vec<BDAddr>>> = Arc::new(Mutex::new(Vec::new()));
@@ -37,15 +66,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(Mutex::new(HashMap::new()));
 
     //OSC listening on port 3334
-    let sock = UdpSocket::bind("0.0.0.0:3334".parse::<SocketAddr>().unwrap()).await?;
-    println!("OSC listening on port 3334");
+    let sock = UdpSocket::bind((listening_address).parse::<SocketAddr>().unwrap()).await?;
+    println!("OSC listening on port {}", port_number);
 
     let r = Arc::new(sock);
     let s = r.clone();
     let (tx, mut rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);
 
     //Where to send packets
-    let remote_addr = "127.0.0.1:3333".parse::<SocketAddr>().unwrap();
+    let remote = matches.opt_str("r").unwrap_or("127.0.0.1:3333".to_string());
+    let remote_read = remote.parse::<SocketAddr>();
+    let remote_addr = if remote_read.is_ok() {
+        remote_read.unwrap()
+    } else {
+        eprintln!("Remote address {} is wrongly formatted, use IP:PORT (127.0.0.1:3333)", remote);
+        return Ok(());
+    };
+
+    let host_id = matches.opt_str("i").unwrap_or("0".to_string()).parse::<i32>().unwrap_or(0);
+    println!("Sending messages to {} prefixed by {}", remote_addr, host_id);
+
 
     //Send OSC
     tokio::spawn(async move {
@@ -267,7 +307,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 "Subscribing to motion characteristic {:?}",
                                 characteristic.uuid
                             );
-                            peripheral.subscribe(&characteristic).await?;
+                            //peripheral.subscribe(&characteristic).await?;
                         }
                     }
 
@@ -298,7 +338,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                             encoder::encode(&OscPacket::Message(OscMessage {
                                                 addr: "/position".to_string(),
                                                 args: vec![
-                                                    OscType::Int(0),
+                                                    OscType::Int(host_id),
                                                     OscType::Int(id as i32),
                                                     OscType::Int(x as i32),
                                                     OscType::Int(y as i32),
@@ -317,7 +357,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     let msg = encoder::encode(&OscPacket::Message(OscMessage {
                                         addr: "/button".to_string(),
                                         args: vec![
-                                            OscType::Int(0),
+                                            OscType::Int(host_id),
                                             OscType::Int(id as i32),
                                             OscType::Int(button as i32),
                                         ],
@@ -336,7 +376,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     let msg = encoder::encode(&OscPacket::Message(OscMessage {
                                         addr: "/motion".to_string(),
                                         args: vec![
-                                            OscType::Int(0),
+                                            OscType::Int(host_id),
                                             OscType::Int(id as i32),
                                             OscType::Int(flatness as i32),
                                             OscType::Int(hit as i32),
