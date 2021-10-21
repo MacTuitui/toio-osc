@@ -1,9 +1,9 @@
 extern crate getopts;
-use getopts::Options;
 use btleplug::api::CharPropFlags;
 use btleplug::api::{
-    BDAddr, Central, CentralEvent, Characteristic, Manager as _, Peripheral, WriteType,
+    BDAddr, Central, CentralEvent, Characteristic, Manager as _, Peripheral, ScanFilter, WriteType,
 };
+use getopts::Options;
 
 use btleplug::platform::Manager;
 use futures::stream::StreamExt;
@@ -20,7 +20,6 @@ use uuid::Uuid;
 
 //#[macro_use]
 extern crate log;
-
 
 //characteristic of interest
 const TOIO_SERVICE_UUID: Uuid = Uuid::from_u128(0x10B20100_5B3B_4571_9508_CF3EFCD7BBAE);
@@ -49,8 +48,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     opts.optopt("i", "host_id", "set host id number", "ID_NUMBER");
     opts.optflag("h", "help", "print this help menu");
     let matches = match opts.parse(&args[1..]) {
-        Ok(m) => { m }
-        Err(f) => { panic!("{}",f.to_string()) }
+        Ok(m) => m,
+        Err(f) => {
+            panic!("{}", f.to_string())
+        }
     };
     if matches.opt_present("h") {
         print_usage(&program, opts);
@@ -58,7 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let port_number = matches.opt_str("p").unwrap_or("3334".to_string());
-    let listening_address = format!("0.0.0.0:{}",port_number);
+    let listening_address = format!("0.0.0.0:{}", port_number);
 
     //the ID/addresses of the cubes
     let addresses: Arc<Mutex<Vec<BDAddr>>> = Arc::new(Mutex::new(Vec::new()));
@@ -79,13 +80,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let remote_addr = if remote_read.is_ok() {
         remote_read.unwrap()
     } else {
-        eprintln!("Remote address {} is wrongly formatted, use IP:PORT (127.0.0.1:3333)", remote);
+        eprintln!(
+            "Remote address {} is wrongly formatted, use IP:PORT (127.0.0.1:3333)",
+            remote
+        );
         return Ok(());
     };
 
-    let host_id = matches.opt_str("i").unwrap_or("0".to_string()).parse::<i32>().unwrap_or(0);
-    println!("Sending messages to {} prefixed by {}", remote_addr, host_id);
-
+    let host_id = matches
+        .opt_str("i")
+        .unwrap_or("0".to_string())
+        .parse::<i32>()
+        .unwrap_or(0);
+    println!(
+        "Sending messages to {} prefixed by {}",
+        remote_addr, host_id
+    );
 
     //Send OSC
     tokio::spawn(async move {
@@ -154,7 +164,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut events = central.events().await?;
 
     // start scanning for devices
-    central.start_scan().await?;
+    central.start_scan(ScanFilter::default()).await?;
 
     println!("Scanning for BTLE events...");
 
@@ -162,7 +172,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     while let Some(event) = events.next().await {
         match event {
             CentralEvent::DeviceDiscovered(bd_addr) => {
-                let peripheral = central.peripheral(bd_addr).await.unwrap();
+                let peripheral = central.peripheral(&bd_addr).await.unwrap();
 
                 let properties = peripheral.properties().await?;
                 let services = properties.unwrap().services;
@@ -222,6 +232,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                         let rightdirection = if marg[2] < 0 { 0x02 } else { 0x01 };
 
                                         let characteristic = Characteristic {
+                                            service_uuid: TOIO_SERVICE_UUID,
                                             uuid: MOTOR_CHARACTERISTIC_UUID,
                                             properties: CharPropFlags::WRITE_WITHOUT_RESPONSE,
                                         };
@@ -252,6 +263,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                             }
                                         }
                                         let characteristic = Characteristic {
+                                            service_uuid: TOIO_SERVICE_UUID,
                                             uuid: LIGHT_CHARACTERISTIC_UUID,
                                             properties: CharPropFlags::WRITE_WITHOUT_RESPONSE,
                                         };
@@ -279,35 +291,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("Peripheral {} connected: {}", address, is_connected);
 
                     println!("Discovering peripheral characteristics...");
-                    let chars = peripheral.discover_characteristics().await?;
-                    for characteristic in chars.into_iter() {
-                        println!("Checking {:?}", characteristic);
-                        if characteristic.uuid == POSITION_CHARACTERISTIC_UUID
-                            && characteristic.properties.contains(CharPropFlags::NOTIFY)
-                        {
-                            println!(
-                                "Subscribing to position characteristic {:?}",
-                                characteristic.uuid
-                            );
-                            peripheral.subscribe(&characteristic).await?;
-                        } 
-                        if characteristic.uuid == BUTTON_CHARACTERISTIC_UUID
-                            && characteristic.properties.contains(CharPropFlags::NOTIFY)
-                        {
-                            println!(
-                                "Subscribing to button characteristic {:?}",
-                                characteristic.uuid
-                            );
-                            peripheral.subscribe(&characteristic).await?;
-                        } 
-                        if characteristic.uuid == MOTION_CHARACTERISTIC_UUID
-                            && characteristic.properties.contains(CharPropFlags::NOTIFY)
-                        {
-                            println!(
-                                "Subscribing to motion characteristic {:?}",
-                                characteristic.uuid
-                            );
-                            //peripheral.subscribe(&characteristic).await?;
+                    peripheral.discover_services().await?;
+                    for service in peripheral.services() {
+                        for characteristic in service.characteristics {
+                            println!("Checking {:?}", characteristic);
+                            if characteristic.uuid == POSITION_CHARACTERISTIC_UUID
+                                && characteristic.properties.contains(CharPropFlags::NOTIFY)
+                            {
+                                println!(
+                                    "Subscribing to position characteristic {:?}",
+                                    characteristic.uuid
+                                );
+                                peripheral.subscribe(&characteristic).await?;
+                            }
+                            if characteristic.uuid == BUTTON_CHARACTERISTIC_UUID
+                                && characteristic.properties.contains(CharPropFlags::NOTIFY)
+                            {
+                                println!(
+                                    "Subscribing to button characteristic {:?}",
+                                    characteristic.uuid
+                                );
+                                peripheral.subscribe(&characteristic).await?;
+                            }
+                            if characteristic.uuid == MOTION_CHARACTERISTIC_UUID
+                                && characteristic.properties.contains(CharPropFlags::NOTIFY)
+                            {
+                                println!(
+                                    "Subscribing to motion characteristic {:?}",
+                                    characteristic.uuid
+                                );
+                                //peripheral.subscribe(&characteristic).await?;
+                            }
                         }
                     }
 
@@ -351,7 +365,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                                         tx3.send((msg, remote_addr)).await.unwrap();
                                     }
-                                },
+                                }
                                 BUTTON_CHARACTERISTIC_UUID => {
                                     let button = data.value[1];
                                     let msg = encoder::encode(&OscPacket::Message(OscMessage {
@@ -365,7 +379,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     .unwrap();
 
                                     tx3.send((msg, remote_addr)).await.unwrap();
-                                },
+                                }
                                 MOTION_CHARACTERISTIC_UUID => {
                                     let flatness = data.value[1];
                                     let hit = data.value[2];
@@ -388,7 +402,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     .unwrap();
 
                                     tx3.send((msg, remote_addr)).await.unwrap();
-                                },
+                                }
                                 _ => {}
                             }
                         }
