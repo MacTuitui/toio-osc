@@ -7,8 +7,9 @@ edition = "2018"
 
 [dependencies]
 log = "0.4"
+pretty_env_logger = "0.4.0"
 env_logger = "0.7"
-btleplug = "0.8"
+btleplug = { path = "../btleplug" } 
 uuid = "0.8.2"
 futures = "0.3.16"
 tokio = { version = "1.9.0", features = ["rt","macros","rt-multi-thread"] }
