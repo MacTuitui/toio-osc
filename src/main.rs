@@ -1,9 +1,9 @@
 extern crate getopts;
-use getopts::Options;
 use btleplug::api::CharPropFlags;
 use btleplug::api::{
-    BDAddr, Central, CentralEvent, Characteristic, Manager as _, Peripheral, WriteType, ScanFilter,
+    Central, CentralEvent, Characteristic, Manager as _, Peripheral, ScanFilter, WriteType,
 };
+use getopts::Options;
 
 use btleplug::platform::Manager;
 use futures::stream::StreamExt;
@@ -20,7 +20,6 @@ use uuid::Uuid;
 
 //#[macro_use]
 extern crate log;
-
 
 //characteristic of interest
 const TOIO_SERVICE_UUID: Uuid = Uuid::from_u128(0x10B20100_5B3B_4571_9508_CF3EFCD7BBAE);
@@ -47,11 +46,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     opts.optopt("p", "port", "set receiving port", "PORT_NUMBER");
     opts.optopt("r", "remote", "set remote port", "IP:PORT_NUMBER");
     opts.optopt("i", "host_id", "set host id number", "ID_NUMBER");
-    opts.optopt("n", "names", "connect to those cubes only (toio Core Cube-AAA, toio Core Cube-BBB,...)", "AAA,BBB,CCC");
+    opts.optopt(
+        "n",
+        "names",
+        "connect to those cubes only (toio Core Cube-AAA, toio Core Cube-BBB,...)",
+        "AAA,BBB,CCC",
+    );
     opts.optflag("h", "help", "print this help menu");
     let matches = match opts.parse(&args[1..]) {
-        Ok(m) => { m }
-        Err(f) => { panic!("{}",f.to_string()) }
+        Ok(m) => m,
+        Err(f) => {
+            panic!("{}", f.to_string())
+        }
     };
     if matches.opt_present("h") {
         print_usage(&program, opts);
@@ -59,23 +65,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let port_number = matches.opt_str("p").unwrap_or("3334".to_string());
-    let listening_address = format!("0.0.0.0:{}",port_number);
+    let listening_address = format!("0.0.0.0:{}", port_number);
 
     //this will be filled with the names to connect to *if needed*
     let possible_names = match matches.opt_str("n") {
         Some(names) => {
             let mut res = Vec::new();
-            let parts = names.split(",");
             for part in names.split(",") {
                 if part.len() == 3 {
-                    res.push(format!("toio Core Cube-{}",part));
+                    res.push(format!("toio Core Cube-{}", part));
                 } else {
                     panic!("Error while reading the names");
                 }
             }
             Some(res)
-        },
-        None => {None},
+        }
+        None => None,
     };
 
     //the ID/addresses of the cubes
@@ -98,13 +103,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let remote_addr = if remote_read.is_ok() {
         remote_read.unwrap()
     } else {
-        eprintln!("Remote address {} is wrongly formatted, use IP:PORT (127.0.0.1:3333)", remote);
+        eprintln!(
+            "Remote address {} is wrongly formatted, use IP:PORT (127.0.0.1:3333)",
+            remote
+        );
         return Ok(());
     };
 
-    let host_id = matches.opt_str("i").unwrap_or("0".to_string()).parse::<i32>().unwrap_or(0);
-    println!("Sending messages to {} prefixed by {}", remote_addr, host_id);
-
+    let host_id = matches
+        .opt_str("i")
+        .unwrap_or("0".to_string())
+        .parse::<i32>()
+        .unwrap_or(0);
+    println!(
+        "Sending messages to {} prefixed by {}",
+        remote_addr, host_id
+    );
 
     //Send OSC
     tokio::spawn(async move {
@@ -165,7 +179,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let manager = Manager::new().await?;
 
-        println!("Found Manager: {:?}", manager);
+    println!("Found Manager: {:?}", manager);
     // get the first bluetooth adapter
     // connect to the adapter
     let adapters = manager.adapters().await.unwrap();
@@ -174,62 +188,79 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Found Adapter: {}", adapter.adapter_info().await?);
     }
 
-    
     let central = adapters.into_iter().nth(0).unwrap();
-
 
     //get the events from the central
     let mut events = central.events().await?;
 
     // start scanning for devices
-    central.start_scan(ScanFilter{ services: vec![TOIO_SERVICE_UUID]}).await?;
+    central
+        .start_scan(ScanFilter {
+            services: vec![TOIO_SERVICE_UUID],
+        })
+        .await?;
 
-
-    println!("Scanning for BTLE events on {:?}...",central);
+    //println!("Scanning for BTLE events on {:?}...",central);
 
     //Scan all the time
     while let Some(event) = events.next().await {
         //println!("event... {:?}", event);
+        let mut device_candidate: Option<btleplug::platform::PeripheralId> = None;
+        //Sometimes we miss the discovered event, so react on the DeviceUpdated as well
         match event {
+            CentralEvent::DeviceUpdated(bd_addr) => {
+                device_candidate = Some(bd_addr);
+            }
             CentralEvent::DeviceDiscovered(bd_addr) => {
-                let peripheral = central.peripheral(&bd_addr).await.unwrap();
+                device_candidate = Some(bd_addr);
+            }
+            CentralEvent::DeviceDisconnected(bd_addr) => {
+                println!("DeviceDisconnected: {:?}", bd_addr);
+            }
+            _ => {}
+        }
 
-                let properties = peripheral.properties().await?.unwrap();
-                let local_name = properties.local_name.unwrap_or("".to_string());
-                println!("Seeing peripheral with name: {}", local_name);
+        //
+        if let Some(bd_addr) = device_candidate {
+            let peripheral = central.peripheral(&bd_addr).await.unwrap();
 
-                
-                let services = properties.services;
-                let should_connect = if let Some(names)=&possible_names {
-                    names.contains(&local_name)
+            let properties = peripheral.properties().await?.unwrap();
+            let local_name = properties.local_name.unwrap_or("".to_string());
+            print!("Device with name: {} ...", local_name);
+
+            let services = properties.services;
+            let should_connect = if let Some(names) = &possible_names {
+                names.contains(&local_name)
+            } else {
+                services.contains(&TOIO_SERVICE_UUID)
+            };
+
+            //if (services.contains(&TOIO_SERVICE_UUID)) || possible_names.contains(&local_name)  {
+            if should_connect {
+                //we kave a toio cube!
+                let tx3 = tx.clone();
+                let is_connected = peripheral.is_connected().await?;
+                if is_connected {
+                    println!("Already connected!");
                 } else {
-                    services.contains(&TOIO_SERVICE_UUID)
-                };
-
-                //if (services.contains(&TOIO_SERVICE_UUID)) || possible_names.contains(&local_name)  {
-                if should_connect {
-                    //we kave a toio cube!
-                    let tx3 = tx.clone();
-                    let is_connected = peripheral.is_connected().await?;
-                    if !is_connected {
-                        // Connect if we aren't already connected.
-                        if let Err(err) = peripheral.connect().await {
-                            eprintln!("Error connecting to peripheral, skipping: {}", err);
-                            continue;
-                        }
+                    // Connect if we aren't already connected.
+                    if let Err(err) = peripheral.connect().await {
+                        eprintln!("Error connecting to peripheral, skipping: {}", err);
+                        continue;
                     }
                     time::sleep(Duration::from_millis(200)).await;
-                    let properties = peripheral.properties().await?;
-                    let address = properties.unwrap().address;
+                    // We should be connected now
                     let peripheral_id = peripheral.id();
-                    //println!("Peripheral ID is {:?}", peripheral_id);
+                    println!("connecting with Peripheral ID: {:?}", peripheral_id);
 
                     //find the id for this cube
                     //let mut addr = addresses.lock().unwrap();
                     let mut storage_uuid = uuids.lock().unwrap();
 
                     //do we already know that address?
-                    let id = if let Some(index) = storage_uuid.iter().position(|a| a == &peripheral_id) {
+                    let id = if let Some(index) =
+                        storage_uuid.iter().position(|a| a == &peripheral_id)
+                    {
                         index
                     } else {
                         //no, add it to the list
@@ -321,39 +352,45 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     });
 
-                    let is_connected = peripheral.is_connected().await?;
-                    println!("Peripheral {} connected: {}", address, is_connected);
+                    //let is_connected = peripheral.is_connected().await?;
+                    //println!("Peripheral {} connected: {}", address, is_connected);
 
-                    println!("Discovering peripheral characteristics...");
+                    //println!("Discovering peripheral characteristics...");
                     let chars = peripheral.characteristics();
                     for characteristic in chars.into_iter() {
-                        println!("Checking {:?}", characteristic);
+                        //println!("Checking {:?}", characteristic);
                         if characteristic.uuid == POSITION_CHARACTERISTIC_UUID
                             && characteristic.properties.contains(CharPropFlags::NOTIFY)
                         {
+                            /*
                             println!(
                                 "Subscribing to position characteristic {:?}",
                                 characteristic.uuid
                             );
+                            */
                             peripheral.subscribe(&characteristic).await?;
-                        } 
+                        }
                         if characteristic.uuid == BUTTON_CHARACTERISTIC_UUID
                             && characteristic.properties.contains(CharPropFlags::NOTIFY)
                         {
+                            /*
                             println!(
                                 "Subscribing to button characteristic {:?}",
                                 characteristic.uuid
                             );
+                            */
                             peripheral.subscribe(&characteristic).await?;
-                        } 
+                        }
                         if characteristic.uuid == MOTION_CHARACTERISTIC_UUID
                             && characteristic.properties.contains(CharPropFlags::NOTIFY)
                         {
+                            /*
                             println!(
                                 "Subscribing to motion characteristic {:?}",
                                 characteristic.uuid
                             );
-                            //peripheral.subscribe(&characteristic).await?;
+                            */
+                            peripheral.subscribe(&characteristic).await?;
                         }
                     }
 
@@ -397,7 +434,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                                         tx3.send((msg, remote_addr)).await.unwrap();
                                     }
-                                },
+                                }
                                 BUTTON_CHARACTERISTIC_UUID => {
                                     let button = data.value[1];
                                     let msg = encoder::encode(&OscPacket::Message(OscMessage {
@@ -411,7 +448,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     .unwrap();
 
                                     tx3.send((msg, remote_addr)).await.unwrap();
-                                },
+                                }
                                 MOTION_CHARACTERISTIC_UUID => {
                                     let flatness = data.value[1];
                                     let hit = data.value[2];
@@ -434,17 +471,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     .unwrap();
 
                                     tx3.send((msg, remote_addr)).await.unwrap();
-                                },
+                                }
                                 _ => {}
                             }
                         }
                     });
                 }
             }
-            CentralEvent::DeviceDisconnected(bd_addr) => {
-                println!("DeviceDisconnected: {:?}", bd_addr);
-            }
-            _ => {}
         }
     }
 
